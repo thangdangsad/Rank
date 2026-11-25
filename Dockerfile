@@ -17,7 +17,7 @@ COPY --from=build /out/bracket /bracket
 # /data thuộc user nonroot để volume mới tạo ghi được file SQLite
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV DB_PATH=/data/bracket.db PORT=8080
-EXPOSE 8080
+EXPOSE 8081
 VOLUME /data
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 CMD ["/bracket", "health"]
 ENTRYPOINT ["/bracket"]
