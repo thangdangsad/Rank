@@ -1,4 +1,4 @@
-# Cây xếp hạng giải cầu lông: lưu dữ liệu bằng Go + SQLite
+# Bảng thi đấu giải cầu lông: lưu dữ liệu bằng Go + SQLite
 
 ## 1. Kết luận ngắn
 
@@ -39,7 +39,7 @@ bracket/
 ├─ go.mod
 ├─ Dockerfile
 └─ web/
-   └─ index.html      # trang cây xếp hạng, sửa phần lưu trữ (mục 6)
+   └─ index.html      # trang bảng thi đấu, sửa phần lưu trữ (mục 6)
 ```
 
 Khởi tạo:
@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS brackets (
 
 `version` dùng để tránh việc 2 người cùng sửa rồi người sau ghi đè người trước. Nếu `version` gửi lên không khớp, server trả `409` kèm bản mới nhất.
 
-Nếu sau này muốn lưu cả vòng bảng (lịch, kết quả từng trận), thêm các bảng `teams`, `matches` (đội 1, đội 2, số ván thắng, tổng điểm). Phần cây xếp hạng không cần đổi.
+Nếu sau này muốn lưu cả vòng bảng (lịch, kết quả từng trận), thêm các bảng `teams`, `matches` (đội 1, đội 2, số ván thắng, tổng điểm). Phần cây đấu không cần đổi.
 
 ## 5. Backend Go (`main.go`)
 

@@ -16,25 +16,17 @@ CV đã dùng cổng 8080 nên Rank dùng **8081**.
 | `Dockerfile` | Build 2 stage: Go build (kèm vet + test) → image distroless chỉ có binary, user nonroot |
 | `deploy/docker-compose.yml` | Chạy container `rank`, publish `:8081`, gắn volume `rank-data` |
 | `deploy/nginx-rank.conf` | Site Nginx cho domain riêng (khi có) |
-| `.github/workflows/deploy.yml` | Ghi env tạm từ secret → build → sao lưu SQLite → `compose up` → health check → rollback nếu lỗi → xóa env tạm |
+| `.github/workflows/deploy.yml` | Build → sao lưu SQLite → `compose up` → health check → rollback nếu lỗi |
 
 ## 1. Repo: nên để private
 
 Repo đang **public**. Workflow chỉ chạy khi push `main` hoặc bấm tay (không chạy theo PR), nên người ngoài không chạy được code trên server qua PR. GitHub vẫn khuyên **không dùng self-hosted runner với repo public**: nếu sau này có ai thêm workflow chạy theo `pull_request`, server sẽ bị lộ. Đổi private: repo → Settings → General → Danger Zone → Change visibility.
 
-## 2. Secret `ENV_FILE`
+## 2. Không có mã chỉnh sửa, không cần secret
 
-GitHub repo → **Settings → Environments → ENV_FILE** → **Environment secrets** → secret `ENV_FILE`, nội dung theo `.env.example` (workflow khai báo `environment: ENV_FILE` để đọc được secret này):
+Trang không có mã chỉnh sửa: **ai mở được trang cũng sửa được kết quả**. Server chỉ chạy trong LAN nên phạm vi là người trong mạng nội bộ. Nếu sau này mở ra internet thì nên thêm lại lớp bảo vệ (mã chỉnh sửa, hoặc Basic Auth ở Nginx).
 
-```
-EDIT_TOKEN=ma-bi-mat-cua-ban
-```
-
-Hoặc từ máy dev: `gh secret set ENV_FILE --env ENV_FILE < .env` (file giữ ở máy bạn, không commit).
-
-Nên đặt **Deployment branches and tags** của environment này thành **Selected branches → `main`**: chỉ code trên `main` mới đọc được secret.
-
-Đổi mã = sửa secret rồi chạy lại workflow (**Actions → deploy → Run workflow**). `docker restart rank` không đủ: env chỉ được nạp khi tạo container.
+Workflow không đọc secret nào. Environment `ENV_FILE` tạo trước đây có thể xóa (Settings → Environments).
 
 ## 3. Cài runner cho repo Rank (một lần)
 

@@ -1,11 +1,10 @@
-# Workflow chạy: TAG=<commit> RANK_ENV_FILE=<file tạm> docker compose -p rank -f deploy/docker-compose.yml up -d
-# RANK_ENV_FILE do workflow sinh từ secret ENV_FILE trên GitHub và xóa ngay sau job; server không giữ .env.
+# Workflow chạy: TAG=<commit> docker compose -p rank -f deploy/docker-compose.yml up -d
+# Không có mã chỉnh sửa nên không cần file .env hay secret nào.
 services:
   rank:
     image: rank:${TAG:-latest}
     container_name: rank
     restart: unless-stopped
-    env_file: ${RANK_ENV_FILE:?thiếu RANK_ENV_FILE}
     environment:
       PORT: "8080"
       DB_PATH: /data/bracket.db

@@ -1,7 +1,7 @@
 name: deploy
 
 # Chạy trên self-hosted runner cài ngay trên server (server chỉ có trong LAN, runner tự kết nối ra GitHub).
-# Cấu hình lấy hoàn toàn từ secret ENV_FILE (nội dung file .env) — server không giữ file .env nào.
+# Không cần secret nào: app không có mã chỉnh sửa, cấu hình nằm trong deploy/docker-compose.yml.
 # User chạy runner (deploy) phải thuộc group docker. Xem DEPLOY.md.
 # Chỉ chạy khi push main / bấm tay, KHÔNG chạy theo pull_request (repo public + self-hosted runner).
 
@@ -22,32 +22,9 @@ jobs:
   deploy:
     # chỉ repo gốc mới deploy (fork có workflow này cũng không chạy)
     if: github.repository == 'thangdangsad/Rank'
-    # secret ENV_FILE nằm trong Environment "ENV_FILE" (Settings → Environments), không phải secret cấp repo
-    environment: ENV_FILE
     runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
-
-      - name: Ghi env từ secret ENV_FILE
-        env:
-          ENV_FILE: ${{ secrets.ENV_FILE }}
-        run: |
-          set -euo pipefail
-          if [ -z "$ENV_FILE" ]; then
-            echo "::error::Chưa có secret ENV_FILE (Settings → Secrets and variables → Actions)"; exit 1
-          fi
-          umask 077
-          # File tạm của job (RUNNER_TEMP), các step sau dùng qua biến RANK_ENV_FILE.
-          RANK_ENV_FILE="$RUNNER_TEMP/rank.env"
-          echo "RANK_ENV_FILE=$RANK_ENV_FILE" >> "$GITHUB_ENV"
-          # Bỏ CR (dán từ Windows) và dấu nháy bao quanh giá trị (docker --env-file giữ nguyên dấu nháy).
-          printf '%s\n' "$ENV_FILE" | tr -d '\r' \
-            | sed -E "s/^([A-Za-z_][A-Za-z0-9_]*)=\"(.*)\"$/\1=\2/; s/^([A-Za-z_][A-Za-z0-9_]*)='(.*)'$/\1=\2/" \
-            > "$RANK_ENV_FILE"
-          for k in EDIT_TOKEN; do
-            grep -qE "^$k=.+" "$RANK_ENV_FILE" || { echo "::error::ENV_FILE thiếu $k"; exit 1; }
-          done
-          echo "Đã ghi $(grep -cE '^[A-Za-z_]' "$RANK_ENV_FILE") biến"
 
       - name: Build image (chạy luôn vet + test bên trong)
         run: docker build -t "rank:$GITHUB_SHA" -t rank:latest .
@@ -89,7 +66,3 @@ jobs:
         run: |
           docker images rank --format '{{.Tag}}' | grep -vx latest | tail -n +6 | xargs -r -I{} docker rmi "rank:{}" || true
           docker image prune -f >/dev/null
-
-      - name: Xóa env tạm
-        if: always()
-        run: rm -f "$RUNNER_TEMP/rank.env"

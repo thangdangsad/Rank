@@ -20,7 +20,7 @@ func body(version string) *strings.Reader {
 func newTestServer(t *testing.T) (*server, *http.ServeMux) {
 	t.Helper()
 	t.Setenv("DB_PATH", filepath.Join(t.TempDir(), "t.db"))
-	s := &server{db: openDB(), token: "abc"}
+	s := &server{db: openDB()}
 	t.Cleanup(func() { s.db.Close() })
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/brackets/{kind}", s.get)
@@ -52,12 +52,10 @@ func TestSaveFlow(t *testing.T) {
 		want                         int
 	}{
 		{"chưa có dữ liệu", "GET", "", "", 404},
-		{"không có mã", "PUT", "", "0", 401},
-		{"sai mã", "PUT", "xyz", "0", 401},
-		{"tạo mới", "PUT", "abc", "0", 200},
-		{"tạo lại khi đã có", "PUT", "abc", "0", 409},
-		{"cập nhật", "PUT", "abc", "1", 200},
-		{"version cũ", "PUT", "abc", "1", 409},
+		{"không cần mã, tạo mới", "PUT", "", "0", 200},
+		{"tạo lại khi đã có", "PUT", "", "0", 409},
+		{"cập nhật", "PUT", "", "1", 200},
+		{"version cũ", "PUT", "", "1", 409},
 		{"đọc lại", "GET", "", "", 200},
 	}
 	for _, st := range steps {
@@ -97,7 +95,10 @@ func TestValidate(t *testing.T) {
 		"thiếu format":    func(d *doc) { d.Format = "" },
 		"thiếu ko":        func(d *doc) { d.Ko = nil },
 		"3 bảng":          func(d *doc) { d.Groups = append(d.Groups, []string{"", "", ""}) },
-		"bảng 2 ô":        func(d *doc) { d.Groups[0] = []string{"A", "B"} },
+		"bảng 1 ô":        func(d *doc) { d.Groups[0] = []string{"A"} },
+		"bảng 9 ô":        func(d *doc) { d.Groups[0] = make([]string, 9) },
+		"trận ngoài bảng": func(d *doc) { d.Results = map[string][][]*int{"1:0-3": {{n(21), n(1)}}} },
+		"snap ngoài bảng": func(d *doc) { d.Snap = []string{"0:5", "", "", ""} },
 		"tên dài":         func(d *doc) { d.Groups[0][0] = strings.Repeat("x", 31) },
 		"5 ván":           func(d *doc) { d.BestOf = 5 },
 		"mã trận sai":     func(d *doc) { d.Results = map[string][][]*int{"2:0-1": {{n(21), n(1)}}} },
@@ -127,5 +128,23 @@ func TestBackup(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(filepath.Dir(os.Getenv("DB_PATH")), "backups", "bracket-*.db"))
 	if len(files) == 0 || len(files) > 2 {
 		t.Fatalf("số bản sao lưu: %d, muốn 1-2", len(files))
+	}
+}
+
+func TestValidateBigGroup(t *testing.T) {
+	n := func(v int) *int { return &v }
+	d := doc{
+		Format: "groups",
+		Ko:     &knockout{Size: 4, Slots: []string{"", "", "", ""}},
+		Groups: [][]string{{"A", "B", "C", "D", "E"}, {"F", "G"}},
+		BestOf: 3,
+		Results: map[string][][]*int{
+			"0:3-4": {{n(21), n(18)}, {n(19), n(21)}, {n(21), n(15)}},
+			"1:0-1": {{n(21), n(9)}},
+		},
+		Snap: []string{"0:4", "1:1", "1:0", "0:3"},
+	}
+	if msg := validate(&d); msg != "" {
+		t.Fatalf("bảng 5 đội bị từ chối: %s", msg)
 	}
 }

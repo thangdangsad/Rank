@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/subtle"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -14,7 +13,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -33,9 +31,9 @@ CREATE TABLE IF NOT EXISTS tournaments (
   updated_at TEXT NOT NULL
 );`
 
+// server không có mã chỉnh sửa: ai mở được trang (trong LAN) cũng sửa được.
 type server struct {
-	db    *sql.DB
-	token string // mã chỉnh sửa; để trống = ai cũng sửa được
+	db *sql.DB
 }
 
 // knockout là thể thức loại trực tiếp: tự nhập các cặp đấu ở vòng đầu.
@@ -49,7 +47,7 @@ type knockout struct {
 type doc struct {
 	Format  string              `json:"format"`  // "knockout" hoặc "groups"
 	Ko      *knockout           `json:"ko"`      // dữ liệu loại trực tiếp
-	Groups  [][]string          `json:"groups"`  // mỗi bảng 3 ô tên đội, "" = trống
+	Groups  [][]string          `json:"groups"`  // mỗi bảng 2-8 ô tên đội, "" = trống
 	BestOf  int                 `json:"bestOf"`  // 1 hoặc 3 ván mỗi trận vòng bảng
 	Results map[string][][]*int `json:"results"` // "bảng:ô-ô" -> [[điểm1,điểm2],...]
 	Picks   map[string]int      `json:"picks"`   // lựa chọn đội thắng trên cây: "vòng-trận" hoặc "3rd" -> ô vòng đầu
@@ -63,10 +61,13 @@ type tournament struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
+// số ô đội mỗi bảng (nút + / × trên trang)
+const minTeams, maxTeams = 2, 8
+
 var (
-	resultKey = regexp.MustCompile(`^(\d):([0-2])-([0-2])$`)
+	resultKey = regexp.MustCompile(`^(\d):(\d)-(\d)$`)
 	pickKey   = regexp.MustCompile(`^(\d)-(\d{1,2})$`)
-	snapVal   = regexp.MustCompile(`^(\d):([0-2])$`)
+	snapVal   = regexp.MustCompile(`^(\d):(\d)$`)
 )
 
 func env(k, def string) string {
@@ -92,7 +93,7 @@ func main() {
 		return
 	}
 
-	s := &server{db: db, token: os.Getenv("EDIT_TOKEN")}
+	s := &server{db: db}
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
 		log.Fatal(err)
@@ -104,9 +105,6 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	addr := ":" + env("PORT", "8080")
-	if s.token == "" {
-		log.Println("cảnh báo: EDIT_TOKEN trống, ai cũng sửa được")
-	}
 	log.Println("listening on", addr)
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
@@ -208,14 +206,6 @@ func (s *server) get(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, t)
 }
 
-func (s *server) authorized(r *http.Request) bool {
-	if s.token == "" {
-		return true
-	}
-	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	return subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) == 1
-}
-
 func validNames(names []string) bool {
 	for _, n := range names {
 		if len([]rune(n)) > 30 {
@@ -266,8 +256,8 @@ func validate(d *doc) string {
 		return "số bảng phải là 2, 4 hoặc 8"
 	}
 	for _, g := range d.Groups {
-		if len(g) != 3 {
-			return "mỗi bảng phải có 3 ô"
+		if len(g) < minTeams || len(g) > maxTeams {
+			return "mỗi bảng phải có từ 2 đến 8 ô"
 		}
 		if !validNames(g) {
 			return "tên quá dài (tối đa 30 ký tự)"
@@ -286,7 +276,9 @@ func validate(d *doc) string {
 			return "mã trận không hợp lệ"
 		}
 		g, _ := strconv.Atoi(m[1])
-		if g >= G || m[2] >= m[3] {
+		i, _ := strconv.Atoi(m[2])
+		j, _ := strconv.Atoi(m[3])
+		if g >= G || i >= j || j >= len(d.Groups[g]) {
 			return "mã trận không hợp lệ"
 		}
 		if len(sets) > 3 {
@@ -326,7 +318,9 @@ func validate(d *doc) string {
 		if m == nil {
 			return "dữ liệu cây không hợp lệ"
 		}
-		if g, _ := strconv.Atoi(m[1]); g >= G {
+		g, _ := strconv.Atoi(m[1])
+		s, _ := strconv.Atoi(m[2])
+		if g >= G || s >= len(d.Groups[g]) {
 			return "dữ liệu cây không hợp lệ"
 		}
 	}
@@ -337,10 +331,6 @@ func (s *server) put(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	if !validKind(kind) {
 		errJSON(w, 400, "kind không hợp lệ")
-		return
-	}
-	if !s.authorized(r) {
-		errJSON(w, 401, "cần mã chỉnh sửa")
 		return
 	}
 
