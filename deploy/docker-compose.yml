@@ -1,0 +1,25 @@
+# Workflow chạy: TAG=<commit> RANK_ENV_FILE=<file tạm> docker compose -p rank -f deploy/docker-compose.yml up -d
+# RANK_ENV_FILE do workflow sinh từ secret ENV_FILE trên GitHub và xóa ngay sau job; server không giữ .env.
+services:
+  rank:
+    image: rank:${TAG:-latest}
+    container_name: rank
+    restart: unless-stopped
+    env_file: ${RANK_ENV_FILE:?thiếu RANK_ENV_FILE}
+    environment:
+      PORT: "8080"
+      DB_PATH: /data/bracket.db
+    ports:
+      # CV đã dùng 8080 nên Rank mở 8081. Trong LAN vào thẳng http://<ip>:8081; từ internet đi qua Nginx.
+      - "8081:8080"
+    volumes:
+      - rank-data:/data          # file SQLite, giữ qua các lần deploy
+    read_only: true
+    tmpfs:
+      - /tmp                     # SQLite cần chỗ ghi tạm khi rootfs chỉ đọc
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  rank-data:
+    name: rank-data              # tên cố định, không phụ thuộc tên project compose

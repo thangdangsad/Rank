@@ -1,0 +1,15 @@
+.git
+.github
+.idea
+.claude
+.env
+deploy
+data
+*.db
+*.db-wal
+*.db-shm
+bracket
+bracket.exe
+*.md
+*.html
+!web/*.html

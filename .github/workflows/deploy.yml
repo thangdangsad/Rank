@@ -1,0 +1,95 @@
+name: deploy
+
+# Chạy trên self-hosted runner cài ngay trên server (server chỉ có trong LAN, runner tự kết nối ra GitHub).
+# Cấu hình lấy hoàn toàn từ secret ENV_FILE (nội dung file .env) — server không giữ file .env nào.
+# User chạy runner (deploy) phải thuộc group docker. Xem DEPLOY.md.
+# Chỉ chạy khi push main / bấm tay, KHÔNG chạy theo pull_request (repo public + self-hosted runner).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-rank
+  cancel-in-progress: false
+
+env:
+  COMPOSE: docker compose -p rank -f deploy/docker-compose.yml
+  HEALTH_URL: http://127.0.0.1:8081/api/brackets/doi
+
+jobs:
+  deploy:
+    # chỉ repo gốc mới deploy (fork có workflow này cũng không chạy)
+    if: github.repository == 'thangdangsad/Rank'
+    # secret ENV_FILE nằm trong Environment "ENV_FILE" (Settings → Environments), không phải secret cấp repo
+    environment: ENV_FILE
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ghi env từ secret ENV_FILE
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+        run: |
+          set -euo pipefail
+          if [ -z "$ENV_FILE" ]; then
+            echo "::error::Chưa có secret ENV_FILE (Settings → Secrets and variables → Actions)"; exit 1
+          fi
+          umask 077
+          # File tạm của job (RUNNER_TEMP), các step sau dùng qua biến RANK_ENV_FILE.
+          RANK_ENV_FILE="$RUNNER_TEMP/rank.env"
+          echo "RANK_ENV_FILE=$RANK_ENV_FILE" >> "$GITHUB_ENV"
+          # Bỏ CR (dán từ Windows) và dấu nháy bao quanh giá trị (docker --env-file giữ nguyên dấu nháy).
+          printf '%s\n' "$ENV_FILE" | tr -d '\r' \
+            | sed -E "s/^([A-Za-z_][A-Za-z0-9_]*)=\"(.*)\"$/\1=\2/; s/^([A-Za-z_][A-Za-z0-9_]*)='(.*)'$/\1=\2/" \
+            > "$RANK_ENV_FILE"
+          for k in EDIT_TOKEN; do
+            grep -qE "^$k=.+" "$RANK_ENV_FILE" || { echo "::error::ENV_FILE thiếu $k"; exit 1; }
+          done
+          echo "Đã ghi $(grep -cE '^[A-Za-z_]' "$RANK_ENV_FILE") biến"
+
+      - name: Build image (chạy luôn vet + test bên trong)
+        run: docker build -t "rank:$GITHUB_SHA" -t rank:latest .
+
+      - name: Sao lưu SQLite trước khi thay bản mới
+        # VACUUM INTO trong container đang chạy -> /data/backups (volume rank-data), giữ 10 bản.
+        run: |
+          if docker ps --format '{{.Names}}' | grep -qx rank; then
+            docker exec rank /bracket backup
+          else
+            echo "Chưa có container rank đang chạy, bỏ qua sao lưu"
+          fi
+
+      - name: Release
+        run: |
+          set -euo pipefail
+          # Tag đang chạy (để rollback) lấy từ chính container hiện tại, không cần file trên server.
+          PREV=$(docker inspect rank --format '{{.Config.Image}}' 2>/dev/null | sed 's/^rank://' || true)
+
+          TAG="$GITHUB_SHA" $COMPOSE up -d --remove-orphans
+
+          for i in $(seq 1 20); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$HEALTH_URL" || true)
+            # 200 = có dữ liệu, 404 = chưa có dữ liệu; cả hai đều là server chạy tốt
+            if [ "$code" = 200 ] || [ "$code" = 404 ]; then
+              echo "Deploy $GITHUB_SHA OK"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Health check thất bại, rollback về ${PREV:-<không có>}"
+          docker logs --tail 30 rank || true
+          if [ -n "$PREV" ] && [ "$PREV" != "$GITHUB_SHA" ]; then TAG="$PREV" $COMPOSE up -d; fi
+          exit 1
+
+      - name: Dọn image cũ (giữ 5 bản gần nhất)
+        if: success()
+        run: |
+          docker images rank --format '{{.Tag}}' | grep -vx latest | tail -n +6 | xargs -r -I{} docker rmi "rank:{}" || true
+          docker image prune -f >/dev/null
+
+      - name: Xóa env tạm
+        if: always()
+        run: rm -f "$RUNNER_TEMP/rank.env"

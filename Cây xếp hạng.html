@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cây xếp hạng</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,700&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: two tabs (mixed doubles, men's singles), each a knockout tree growing upward from an editable row of first-round slots; tap a team to lift it. */
+:root{
+  --bg:#f2f5f0;
+  --surface:#ffffff;
+  --ink:#14231b;
+  --muted:#5a6a60;
+  --line:#c5d0c8;
+  --accent:#1b7a4e;
+  --accent-soft:#d6eedf;
+  --on-accent:#ffffff;
+  --gold:#eab22f;
+  --on-gold:#2b1e00;
+  --bronze:#b87444;
+  --font-display:"Bricolage Grotesque","Be Vietnam Pro",system-ui,sans-serif;
+  --font-body:"Be Vietnam Pro",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1511;
+    --surface:#16211a;
+    --ink:#e6efe8;
+    --muted:#97a89d;
+    --line:#31403a;
+    --accent:#4ec28a;
+    --accent-soft:#1d3b2c;
+    --on-accent:#07150d;
+    --gold:#f0c24a;
+    --on-gold:#2b1e00;
+    --bronze:#cf8a5a;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1511;
+  --surface:#16211a;
+  --ink:#e6efe8;
+  --muted:#97a89d;
+  --line:#31403a;
+  --accent:#4ec28a;
+  --accent-soft:#1d3b2c;
+  --on-accent:#07150d;
+  --gold:#f0c24a;
+  --on-gold:#2b1e00;
+  --bronze:#cf8a5a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.5;-webkit-text-size-adjust:100%}
+.wrap{max-width:1120px;margin:0 auto;padding:22px 16px 48px;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--font-display);font-size:32px;line-height:1.1;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:15px;font-weight:600;margin:0}
+.lead{margin:6px 0 0;color:var(--muted);max-width:62ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
+.tabs{display:flex;gap:6px;border-bottom:2px solid var(--line)}
+.tab{font:inherit;font-weight:600;font-size:15px;padding:10px 16px;border:0;border-bottom:3px solid transparent;margin-bottom:-2px;background:transparent;color:var(--muted);cursor:pointer;border-radius:8px 8px 0 0}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tab:hover{color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.controls{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:center}
+.group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.group .cap{font-size:13px;font-weight:600;color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-weight:600;font-size:14px;padding:8px 14px;border:0;background:var(--surface);color:var(--ink);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.btn{font:inherit;font-weight:600;font-size:14px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.help{margin:10px 0 0;font-size:13.5px;color:var(--muted);max-width:75ch}
+.treehead{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.hint{font-size:13px;color:var(--muted);margin:0}
+.tree{display:flex}
+.labels{position:relative;width:66px;flex:none}
+.labels span{position:absolute;left:0;width:60px;transform:translateY(-50%);font-size:11.5px;line-height:1.2;font-weight:600;color:var(--muted)}
+.labels small{display:block;font-weight:400}
+.scroller{flex:1;min-width:0;overflow-x:auto;padding-bottom:4px}
+.canvas{position:relative}
+.canvas svg{position:absolute;left:0;top:0;pointer-events:none}
+.canvas path{fill:none;stroke-width:2;stroke-linejoin:round}
+.canvas path.base{stroke:var(--line)}
+.canvas path.on{stroke:var(--accent)}
+.team{position:absolute;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 6px;font:inherit;font-weight:600;font-size:13.5px;line-height:1.15;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);border-radius:8px;cursor:default}
+.team span,.pill span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}
+.team.pickable,.pill.pickable{border-color:var(--accent);cursor:pointer}
+.team.pickable:hover,.pill.pickable:hover{background:var(--accent-soft)}
+.team.won,.pill.won{background:var(--accent);border-color:var(--accent);color:var(--on-accent);cursor:pointer}
+.team.lost,.pill.lost{opacity:.5;cursor:pointer}
+.team.empty,.pill.empty{border-style:dashed;background:transparent;color:var(--muted);font-weight:400}
+.team.bye{border-style:dotted;background:transparent;color:var(--muted);font-weight:400;font-size:12px}
+.team.champ{background:var(--gold);border-color:var(--gold);color:var(--on-gold);font-size:15px}
+.team:disabled,.pill:disabled{cursor:default}
+input.team{font-size:16px;font-weight:600;border:1.5px solid var(--accent);background:var(--surface);cursor:text}
+input.team::placeholder{color:var(--muted);font-weight:400;font-size:13px}
+input.team.blank{border-style:dotted;border-color:var(--muted);background:transparent}
+.third{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px}
+.pill{position:relative;display:flex;align-items:center;justify-content:center;text-align:center;min-width:130px;max-width:200px;height:46px;padding:0 10px;font:inherit;font-weight:600;font-size:13.5px;line-height:1.15;color:var(--ink);background:var(--surface);border:1.5px solid var(--line);border-radius:8px}
+.vs{color:var(--muted);font-size:13px}
+.rank{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}
+.rank li{display:grid;grid-template-columns:56px 1fr;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line);border-left-width:6px;border-radius:8px;background:var(--bg)}
+.rank li.r1{border-left-color:var(--gold)}
+.rank li.r2{border-left-color:var(--muted)}
+.rank li.r3{border-left-color:var(--bronze)}
+.rank .pos{font-size:12px;font-weight:600;color:var(--muted)}
+.rank .nm{font-weight:600;font-size:16px}
+.rank .nm.none{color:var(--muted);font-weight:400}
+@media (max-width:640px){
+  h1{font-size:26px}
+  .tab{flex:1;padding:10px 8px}
+}
+@media (prefers-reduced-motion:no-preference){
+  .team,.pill{transition:background-color .15s,border-color .15s,opacity .15s}
+}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <h1>Cây xếp hạng</h1>
+    <p class="lead">Điền các cặp đấu ở hàng dưới cùng của cây. Bấm vào đội thắng, đội đó sẽ đi lên vòng trên.</p>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="Nội dung thi đấu">
+    <button class="tab" role="tab" id="tab-doi" data-tab="doi" type="button">Đôi nam nữ</button>
+    <button class="tab" role="tab" id="tab-don" data-tab="don" type="button">Đơn nam</button>
+  </div>
+
+  <section class="panel" aria-label="Điều khiển">
+    <div class="controls">
+      <div class="group">
+        <span class="cap">Chế độ</span>
+        <div class="seg">
+          <button type="button" id="modeEdit" data-mode="edit" aria-pressed="false">Sửa cặp đấu</button>
+          <button type="button" id="modePick" data-mode="pick" aria-pressed="true">Chọn đội thắng</button>
+        </div>
+      </div>
+      <div class="group">
+        <span class="cap">Số ô vòng đầu</span>
+        <div class="seg" id="sizes">
+          <button type="button" data-size="4" aria-pressed="false">4</button>
+          <button type="button" data-size="8" aria-pressed="true">8</button>
+          <button type="button" data-size="16" aria-pressed="false">16</button>
+        </div>
+      </div>
+      <div class="group">
+        <button class="btn" id="shuffle" type="button">Bốc thăm ngẫu nhiên</button>
+        <button class="btn" id="clear" type="button">Xóa kết quả</button>
+      </div>
+    </div>
+    <p class="help" id="help"></p>
+  </section>
+
+  <section class="panel" aria-labelledby="tree-title">
+    <div class="treehead">
+      <h2 id="tree-title">Cây đấu</h2>
+      <p class="hint" id="byeHint"></p>
+    </div>
+    <div class="tree">
+      <div class="labels" id="labels"></div>
+      <div class="scroller" id="scroller">
+        <div class="canvas" id="canvas">
+          <svg id="svg" aria-hidden="true"></svg>
+          <div id="upper"></div>
+          <div id="leaves"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="thirdPanel" hidden aria-labelledby="third-title">
+    <h2 id="third-title">Tranh hạng 3</h2>
+    <p class="hint" id="thirdHint"></p>
+    <div class="third" id="third"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="rank-title">
+    <h2 id="rank-title">Xếp hạng</h2>
+    <ol class="rank" id="rank"></ol>
+  </section>
+</main>
+
+<script>
+(function(){
+  var KEY="cay-xep-hang-v2";
+  var BYE=-1;
+  var TABS={doi:"Đôi nam nữ",don:"Đơn nam"};
+  var DEF_DOI=["Thắng-Trang","Ly-Minh","Nhỉ-Phương","Hà-An","Huyền-Dũng","Quỳnh-Huy"];
+  var DEF_DON=["Nam 1","Nam 2","Nam 3","Nam 4","Nam 5","Nam 6"];
+  var $=function(s){return document.querySelector(s)};
+  var scroller=$("#scroller"),svg=$("#svg"),upper=$("#upper"),leaves=$("#leaves"),canvasEl=$("#canvas");
+  var P=8,R=3,model=null,leafSig="",lastFocus=null;
+
+  function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+
+  function seedOrder(n){
+    var o=[1,2];
+    while(o.length<n){
+      var m=o.length*2,next=[];
+      o.forEach(function(s){next.push(s,m+1-s)});
+      o=next;
+    }
+    return o.slice(0,n);
+  }
+  function placeNames(names,size){
+    var o=seedOrder(size),s=[],i;
+    for(i=0;i<size;i++)s.push("");
+    names.forEach(function(n,idx){var pos=o.indexOf(idx+1);if(pos>=0)s[pos]=n});
+    return s;
+  }
+  function mk(names,size){return {size:size,slots:placeNames(names,size),picks:{}}}
+
+  var state={tab:"doi",mode:"pick",data:{doi:mk(DEF_DOI,8),don:mk(DEF_DON,8)}};
+
+  function save(){try{localStorage.setItem(KEY,JSON.stringify(state))}catch(e){}}
+  function load(){
+    try{
+      var raw=localStorage.getItem(KEY);
+      if(!raw)return;
+      var d=JSON.parse(raw);
+      if(!d||!d.data)return;
+      ["doi","don"].forEach(function(t){
+        var x=d.data[t];
+        if(x&&[4,8,16].indexOf(x.size)>=0&&Array.isArray(x.slots)&&x.slots.length===x.size){
+          state.data[t]={size:x.size,slots:x.slots.map(function(s){return String(s).slice(0,30)}),picks:(x.picks&&typeof x.picks==="object")?x.picks:{}};
+        }
+      });
+      if(d.tab==="doi"||d.tab==="don")state.tab=d.tab;
+      if(d.mode==="edit"||d.mode==="pick")state.mode=d.mode;
+    }catch(e){}
+  }
+  function cur(){return state.data[state.tab]}
+
+  function compute(){
+    var d=cur(),picks=d.picks;
+    P=d.size;R=Math.round(Math.log2(P));
+    var L=[d.slots.map(function(s,i){return s.trim()?i:BYE})];
+    var auto=[[]];
+    for(var k=1;k<=R;k++){
+      var prev=L[k-1],row=[],au=[];
+      for(var i=0;i<P/Math.pow(2,k);i++){
+        var a=prev[2*i],b=prev[2*i+1],key=k+"-"+i,v=null,isAuto=false;
+        if(a===BYE||b===BYE){v=(a===BYE)?b:a;isAuto=true;delete picks[key]}
+        else if(a===null||b===null){v=null;delete picks[key]}
+        else{
+          var p=picks[key];
+          if(p===a||p===b)v=p;else delete picks[key];
+        }
+        row.push(v);au.push(isAuto);
+      }
+      L.push(row);auto.push(au);
+    }
+    var third=null;
+    if(R>=2){
+      var cands=[],real=0;
+      for(var m=0;m<2;m++){
+        var pa=L[R-2][2*m],pb=L[R-2][2*m+1],w=L[R-1][m];
+        var isReal=(pa!==BYE&&pb!==BYE);
+        if(isReal)real++;
+        var loser=null;
+        if(isReal&&w!==null&&pa!==null&&pb!==null)loser=(w===pa)?pb:pa;
+        cands.push(loser);
+      }
+      var needMatch=(real===2),thirdId=null,pickId=null;
+      if(needMatch){
+        var tp=picks["3rd"];
+        if(cands[0]!==null&&cands[1]!==null&&(tp===cands[0]||tp===cands[1])){pickId=tp;thirdId=tp}
+        else delete picks["3rd"];
+      }else{
+        delete picks["3rd"];
+        thirdId=cands[0]!==null?cands[0]:cands[1];
+      }
+      third={cands:cands,needMatch:needMatch,pick:pickId,id:thirdId};
+    }
+    model={L:L,auto:auto,third:third};
+  }
+
+  function roundName(n){
+    return n===1?"Vô địch":n===2?"Chung kết":n===4?"Bán kết":n===8?"Tứ kết":"Vòng 16 đội";
+  }
+
+  function geometry(){
+    var cw=scroller.clientWidth||320;
+    var W=Math.max(100,Math.min(170,Math.floor(cw/P)));
+    return {W:W,bw:W-12,bh:46,step:88,padY:6};
+  }
+
+  function render(){
+    var d=cur(),teams=d.slots;
+    compute();
+    var g=geometry(),W=g.W,bw=g.bw,bh=g.bh,step=g.step,padY=g.padY;
+    var L=model.L,auto=model.auto;
+    var H=padY*2+R*step+bh;
+    var Y=function(k){return padY+(R-k)*step};
+    var CX=function(k,i){return W*Math.pow(2,k)*(i+0.5)};
+    var editing=(state.mode==="edit");
+
+    var base="",on="",k,i,j;
+    for(k=1;k<=R;k++){
+      for(i=0;i<L[k].length;i++){
+        var px=CX(k,i),pb=Y(k)+bh;
+        for(j=0;j<2;j++){
+          var ci=2*i+j,cx=CX(k-1,ci),ct=Y(k-1),mid=pb+(ct-pb)/2;
+          var dd="M"+cx+" "+ct+" V"+mid+" H"+px+" V"+pb;
+          var win=(L[k-1][ci]!==null&&L[k-1][ci]!==BYE&&L[k-1][ci]===L[k][i]);
+          if(win)on+='<path class="on" d="'+dd+'"/>';else base+='<path class="base" d="'+dd+'"/>';
+        }
+      }
+    }
+    var tw=P*W;
+    canvasEl.style.width=tw+"px";
+    canvasEl.style.height=H+"px";
+    svg.setAttribute("width",tw);svg.setAttribute("height",H);
+    svg.innerHTML=base+on;
+
+    var boxes="";
+    for(k=1;k<=R;k++){
+      for(i=0;i<L[k].length;i++){
+        var v=L[k][i],cls="team",label="",dis=true,tip="";
+        if(v===null||v===BYE){cls+=" empty";label="?"}
+        else{
+          label=esc(teams[v]);tip=teams[v];
+          if(k===R)cls+=" champ";
+          else{
+            var pv=L[k+1][i>>1],isAuto=auto[k+1][i>>1];
+            if(pv===v)cls+=" won";else if(pv!==null)cls+=" lost";else cls+=" pickable";
+            dis=isAuto||editing;
+          }
+        }
+        boxes+='<button type="button" class="'+cls+'" style="left:'+(CX(k,i)-bw/2)+'px;top:'+Y(k)+'px;width:'+bw+'px;height:'+bh+'px" data-k="'+k+'" data-i="'+i+'"'+(dis?" disabled":"")+(tip?' title="'+esc(tip)+'"':"")+'><span>'+label+'</span></button>';
+      }
+    }
+    upper.innerHTML=boxes;
+
+    var sig=state.tab+"|"+state.mode+"|"+P+"|"+W;
+    if(!editing||sig!==leafSig){
+      var lh="";
+      for(i=0;i<P;i++){
+        var pos='left:'+(CX(0,i)-bw/2)+'px;top:'+Y(0)+'px;width:'+bw+'px;height:'+bh+'px';
+        if(editing){
+          lh+='<input type="text" class="team'+(d.slots[i].trim()?"":" blank")+'" style="'+pos+'" data-i="'+i+'" value="'+esc(d.slots[i])+'" maxlength="30" placeholder="Trống" aria-label="Ô '+(i+1)+(i%2===0?', đấu với ô '+(i+2):', đấu với ô '+i)+'" autocomplete="off" autocapitalize="words" spellcheck="false">';
+        }else{
+          var v0=L[0][i],c0="team",lab="",dis0=true,tip0="";
+          if(v0===BYE){c0+=" bye";lab="Miễn đấu"}
+          else{
+            lab=esc(teams[v0]);tip0=teams[v0];
+            var pv0=L[1][i>>1],au0=auto[1][i>>1];
+            if(pv0===v0)c0+=" won";else if(pv0!==null)c0+=" lost";else c0+=" pickable";
+            dis0=au0;
+          }
+          lh+='<button type="button" class="'+c0+'" style="'+pos+'" data-k="0" data-i="'+i+'"'+(dis0?" disabled":"")+(tip0?' title="'+esc(tip0)+'"':"")+'><span>'+lab+'</span></button>';
+        }
+      }
+      leaves.innerHTML=lh;
+      leafSig=editing?sig:"";
+    }
+
+    var lab2=$("#labels");
+    lab2.style.height=H+"px";
+    var lbl="";
+    for(k=0;k<=R;k++){
+      var n=P/Math.pow(2,k);
+      var t=k===0?'Cặp đấu<small>'+roundName(n)+'</small>':roundName(n);
+      lbl+='<span style="top:'+(Y(k)+bh/2)+'px">'+t+'</span>';
+    }
+    lab2.innerHTML=lbl;
+
+    var filled=d.slots.filter(function(s){return s.trim()}).length,blanks=P-filled;
+    $("#byeHint").textContent=filled<2?"Cần ít nhất 2 đội.":(blanks>0?blanks+" ô trống, đội đứng cạnh được miễn đấu.":"");
+
+    renderThird();
+    renderRank();
+    updateControls();
+
+    if(lastFocus&&!editing){
+      var f=document.querySelector('button[data-k="'+lastFocus.k+'"][data-i="'+lastFocus.i+'"]');
+      if(f&&!f.disabled)f.focus({preventScroll:true});
+    }
+    lastFocus=null;
+  }
+
+  function updateControls(){
+    ["doi","don"].forEach(function(t){
+      var b=$("#tab-"+t);
+      b.setAttribute("aria-selected",state.tab===t?"true":"false");
+      b.tabIndex=state.tab===t?0:-1;
+    });
+    $("#modeEdit").setAttribute("aria-pressed",state.mode==="edit");
+    $("#modePick").setAttribute("aria-pressed",state.mode==="pick");
+    var size=cur().size;
+    document.querySelectorAll("#sizes button").forEach(function(b){b.setAttribute("aria-pressed",(+b.dataset.size===size)?"true":"false")});
+    $("#help").textContent=state.mode==="edit"
+      ?"Gõ tên vào hàng dưới cùng. Hai ô liền nhau (1 và 2, 3 và 4, ...) đấu với nhau. Để trống một ô thì đội cạnh nó được miễn đấu vòng đầu."
+      :"Bấm đội thắng trong mỗi cặp (viền xanh) để đưa lên. Bấm lại đội đã lên để bỏ chọn, hoặc bấm đội kia để đổi.";
+  }
+
+  function pillHtml(id,state_,idx,dis){
+    var cls="pill",label="?";
+    if(id===null||id===undefined){cls+=" empty"}else{label=esc(cur().slots[id]);cls+=" "+state_}
+    return '<button type="button" class="'+cls+'" data-t="'+idx+'"'+(dis?" disabled":"")+'><span>'+label+'</span></button>';
+  }
+
+  function renderThird(){
+    var t=model.third;
+    if(!t){$("#thirdPanel").hidden=true;return}
+    $("#thirdPanel").hidden=false;
+    var c=t.cands,html="";
+    if(t.needMatch){
+      $("#thirdHint").textContent="Hai đội thua ở bán kết. Bấm đội thắng.";
+      var both=(c[0]!==null&&c[1]!==null);
+      var st=function(id){
+        if(id===null)return "";
+        if(t.pick===null)return "pickable";
+        return t.pick===id?"won":"lost";
+      };
+      html=pillHtml(c[0],st(c[0]),0,!both||state.mode==="edit")+'<span class="vs">gặp</span>'+pillHtml(c[1],st(c[1]),1,!both||state.mode==="edit");
+    }else{
+      $("#thirdHint").textContent="Chỉ có một đội thua ở bán kết nên đội đó giữ hạng 3.";
+      var only=c[0]!==null?c[0]:c[1];
+      html=pillHtml(only,"won",0,true);
+    }
+    $("#third").innerHTML=html;
+  }
+
+  function renderRank(){
+    var L=model.L,teams=cur().slots,champ=L[R][0],ru=null;
+    if(champ!==null&&champ!==BYE){
+      var f0=L[R-1][0],f1=L[R-1][1];
+      ru=(f0===champ)?f1:f0;
+    }else champ=null;
+    var third=model.third?model.third.id:null;
+    var rows=[{cls:"r1",pos:"Nhất",id:champ},{cls:"r2",pos:"Nhì",id:ru}];
+    if(model.third)rows.push({cls:"r3",pos:"Ba",id:third});
+    $("#rank").innerHTML=rows.map(function(r){
+      var has=(r.id!==null&&r.id!==undefined&&r.id!==BYE);
+      return '<li class="'+r.cls+'"><span class="pos">'+r.pos+'</span><span class="nm'+(has?"":" none")+'">'+(has?esc(teams[r.id]):"Chưa có")+'</span></li>';
+    }).join("");
+  }
+
+  function pick(k,i){
+    var picks=cur().picks,key=(k+1)+"-"+(i>>1),v=model.L[k][i];
+    if(picks[key]===v)delete picks[key];else picks[key]=v;
+    lastFocus={k:k,i:i};
+    save();render();
+  }
+  upper.addEventListener("click",function(e){
+    var b=e.target.closest("button.team");
+    if(!b||b.disabled)return;
+    pick(+b.dataset.k,+b.dataset.i);
+  });
+  leaves.addEventListener("click",function(e){
+    var b=e.target.closest("button.team");
+    if(!b||b.disabled)return;
+    pick(0,+b.dataset.i);
+  });
+  leaves.addEventListener("input",function(e){
+    var inp=e.target;
+    if(!inp.matches("input.team"))return;
+    var d=cur(),i=+inp.dataset.i;
+    d.slots[i]=inp.value;
+    inp.classList.toggle("blank",!inp.value.trim());
+    save();render();
+  });
+
+  $("#third").addEventListener("click",function(e){
+    var b=e.target.closest("button.pill");
+    if(!b||b.disabled)return;
+    var id=model.third.cands[+b.dataset.t],picks=cur().picks;
+    if(picks["3rd"]===id)delete picks["3rd"];else picks["3rd"]=id;
+    save();render();
+  });
+
+  document.querySelectorAll(".tab").forEach(function(b){
+    b.addEventListener("click",function(){state.tab=b.dataset.tab;leafSig="";save();render()});
+  });
+  $("#modeEdit").addEventListener("click",function(){state.mode="edit";leafSig="";save();render()});
+  $("#modePick").addEventListener("click",function(){state.mode="pick";leafSig="";save();render()});
+  $("#sizes").addEventListener("click",function(e){
+    var b=e.target.closest("button");
+    if(!b)return;
+    var size=+b.dataset.size,d=cur();
+    if(size===d.size)return;
+    var s=d.slots.slice(0,size);
+    while(s.length<size)s.push("");
+    d.size=size;d.slots=s;d.picks={};
+    leafSig="";save();render();
+  });
+  $("#shuffle").addEventListener("click",function(){
+    var d=cur(),names=d.slots.filter(function(s){return s.trim()});
+    for(var i=names.length-1;i>0;i--){
+      var j=Math.floor(Math.random()*(i+1)),t=names[i];names[i]=names[j];names[j]=t;
+    }
+    d.slots=placeNames(names,d.size);d.picks={};
+    leafSig="";save();render();
+  });
+  $("#clear").addEventListener("click",function(){
+    cur().picks={};leafSig="";save();render();
+  });
+
+  var rt=null,lastW=0;
+  window.addEventListener("resize",function(){
+    clearTimeout(rt);
+    rt=setTimeout(function(){
+      var w=scroller.clientWidth;
+      if(w===lastW)return;
+      lastW=w;leafSig="";render();
+    },80);
+  });
+
+  load();
+  render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+bracket
+bracket.exe
+*.db
+*.db-wal
+*.db-shm
+data/
+.idea/
+.env
+.env.*
+!.env.example
