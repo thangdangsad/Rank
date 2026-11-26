@@ -176,6 +176,16 @@ input.team.blank{border-style:dotted;border-color:var(--muted);background:transp
 .rest{margin:6px 0 0;font-size:12px;color:var(--muted)}
 .src{position:absolute;transform:translateX(-50%);font-size:11.5px;font-weight:600;color:var(--muted);white-space:nowrap}
 .panel>h2+.hint{margin-top:2px}
+/* ---- Hộp thoại mật khẩu ---- */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.modal{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:12px;margin:0}
+.modal h2{margin:0;font-size:17px}
+.modal .err{color:var(--danger);font-size:13px;margin:0}
+.mfield{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:var(--muted)}
+.mfield input{font:inherit;font-size:16px;font-weight:600;color:var(--ink);padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface)}
+.mfield input:focus{border-color:var(--accent)}
+.modalBtns{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -232,6 +242,7 @@ input.team.blank{border-style:dotted;border-color:var(--muted);background:transp
       <div class="group">
         <button class="btn" id="shuffle" type="button">Bốc thăm ngẫu nhiên</button>
         <button class="btn" id="clear" type="button">Xóa kết quả</button>
+        <button class="btn" id="pwBtn" type="button">Nhập mật khẩu để sửa</button>
       </div>
     </div>
     <p class="help" id="help"></p>
@@ -282,6 +293,18 @@ input.team.blank{border-style:dotted;border-color:var(--muted);background:transp
     <ol class="rank" id="rank"></ol>
   </section>
 </main>
+
+<div class="overlay" id="pwOverlay" hidden>
+  <form class="modal" id="pwForm">
+    <h2>Nhập mật khẩu để sửa</h2>
+    <p class="err" id="pwErr" hidden></p>
+    <label class="mfield"><span>Mật khẩu</span><input type="password" id="pwInput1" autocomplete="current-password"></label>
+    <div class="modalBtns">
+      <button type="button" class="btn" id="pwCancel">Hủy</button>
+      <button type="submit" class="btn primary" id="pwOk">OK</button>
+    </div>
+  </form>
+</div>
 
 <script>
 (function(){
@@ -797,9 +820,52 @@ input.team.blank{border-style:dotted;border-color:var(--muted);background:transp
 
   /* ---- Lưu trữ: dữ liệu giải lưu trên server (SQLite); tab, chế độ ở localStorage ---- */
   var API="/api/brackets/";
+  var API_LOGIN="/api/login";
   var KINDS=["doi","don"];
   // mỗi giải: timer gộp lần gõ, busy = đang gửi, dirty = còn thay đổi chưa lưu
   var sync={doi:{timer:null,busy:false,dirty:false},don:{timer:null,busy:false,dirty:false}};
+
+  /* ---- Mật khẩu chỉnh sửa: một mật khẩu chung (đặt cứng ở server), lưu trong localStorage sau khi đã xác thực ---- */
+  var PW_KEY="cay-xep-hang-pw";
+  function getPw(){try{return localStorage.getItem(PW_KEY)||""}catch(e){return ""}}
+  function setPw(p){try{localStorage.setItem(PW_KEY,p)}catch(e){}}
+  function clearPw(){try{localStorage.removeItem(PW_KEY)}catch(e){}}
+
+  var pwOverlay=$("#pwOverlay"),pwForm=$("#pwForm"),pwErr=$("#pwErr"),pwInput1=$("#pwInput1"),pwResolve=null;
+
+  function openPwModal(errMsg){
+    if(errMsg){pwErr.textContent=errMsg;pwErr.hidden=false}else{pwErr.hidden=true;pwErr.textContent=""}
+    pwInput1.value="";
+    pwOverlay.hidden=false;
+    pwInput1.focus();
+    return new Promise(function(res){pwResolve=res});
+  }
+  function closePwModal(result){
+    pwOverlay.hidden=true;
+    if(pwResolve){var r=pwResolve;pwResolve=null;r(result)}
+  }
+  pwForm.addEventListener("submit",function(e){e.preventDefault();closePwModal(pwInput1.value)});
+  $("#pwCancel").addEventListener("click",function(){closePwModal(null)});
+  pwOverlay.addEventListener("keydown",function(e){if(e.key==="Escape")closePwModal(null)});
+
+  // hỏi mật khẩu cho tới khi đúng hoặc người dùng bấm Hủy; khi đúng, lưu lại và thử lưu tiếp dữ liệu đang chờ
+  function askLogin(errMsg){
+    return openPwModal(errMsg).then(function(pw){
+      if(pw===null)return;
+      return fetch(API_LOGIN,{
+        method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:pw})
+      }).then(function(res){
+        if(res.ok){setPw(pw);flushPending()}
+        else askLogin("Sai mật khẩu, thử lại");
+      }).catch(function(){
+        setStatus("Mất kết nối, không kiểm tra được mật khẩu","err");
+      });
+    });
+  }
+  function flushPending(){
+    KINDS.forEach(function(kind){var s=sync[kind];if(s.dirty&&!s.busy&&!s.timer)flush(kind)});
+  }
+  $("#pwBtn").addEventListener("click",function(){askLogin()});
 
   function setStatus(t,kind){
     var el=$("#status");
@@ -882,11 +948,16 @@ input.team.blank{border-style:dotted;border-color:var(--muted);background:transp
   function flush(kind){
     var s=sync[kind];
     if(s.busy||!s.dirty)return; // đang gửi: sẽ gửi tiếp khi xong
-    s.dirty=false;s.busy=true;
+    if(!getPw()){
+      setStatus("Cần mật khẩu để lưu, bấm \"Nhập mật khẩu\" ở trên","err");
+      return; // vẫn dirty: tự lưu lại khi đăng nhập xong
+    }
+    s.busy=true;
     var d=state.data[kind],ok=false;
+    s.dirty=false;
     fetch(API+kind,{
       method:"PUT",
-      headers:{"Content-Type":"application/json"},
+      headers:{"Content-Type":"application/json","X-Password":getPw()},
       body:JSON.stringify({format:d.format,ko:d.ko,groups:d.groups,bestOf:d.bestOf,results:d.results,picks:d.picks,snap:d.snap,version:d.version||0})
     }).then(function(r){
       return r.json().catch(function(){return {}}).then(function(b){
@@ -894,6 +965,10 @@ input.team.blank{border-style:dotted;border-color:var(--muted);background:transp
           ok=true;
           state.data[kind].version=b.version;
           if(!s.dirty)setStatus("Đã lưu lúc "+timeStr(b.updatedAt),"ok");
+        }else if(r.status===401){
+          clearPw();
+          s.dirty=true;
+          setStatus("Sai mật khẩu, cần nhập lại để lưu","err");
         }else if(r.status===409){
           s.dirty=false;
           if(apply(kind,b)){

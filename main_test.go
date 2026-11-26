@@ -25,18 +25,19 @@ func newTestServer(t *testing.T) (*server, *http.ServeMux) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/brackets/{kind}", s.get)
 	mux.HandleFunc("PUT /api/brackets/{kind}", s.put)
+	mux.HandleFunc("POST /api/login", s.login)
 	return s, mux
 }
 
-func do(mux *http.ServeMux, method, path, token string, b *strings.Reader) *httptest.ResponseRecorder {
+func do(mux *http.ServeMux, method, path, password string, b *strings.Reader) *httptest.ResponseRecorder {
 	var req *http.Request
 	if b == nil {
 		req = httptest.NewRequest(method, path, nil)
 	} else {
 		req = httptest.NewRequest(method, path, b)
 	}
-	if token != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	if password != "" {
+		req.Header.Set("X-Password", password)
 	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -46,16 +47,19 @@ func do(mux *http.ServeMux, method, path, token string, b *strings.Reader) *http
 func TestSaveFlow(t *testing.T) {
 	_, mux := newTestServer(t)
 	U := "/api/brackets/doi"
+	P := editPassword
 
 	steps := []struct {
-		name, method, token, version string
-		want                         int
+		name, method, password, version string
+		want                            int
 	}{
 		{"chưa có dữ liệu", "GET", "", "", 404},
-		{"không cần mã, tạo mới", "PUT", "", "0", 200},
-		{"tạo lại khi đã có", "PUT", "", "0", 409},
-		{"cập nhật", "PUT", "", "1", 200},
-		{"version cũ", "PUT", "", "1", 409},
+		{"thiếu mật khẩu", "PUT", "", "0", 401},
+		{"sai mật khẩu", "PUT", "sai", "0", 401},
+		{"đúng mật khẩu, tạo mới", "PUT", P, "0", 200},
+		{"tạo lại khi đã có", "PUT", P, "0", 409},
+		{"cập nhật", "PUT", P, "1", 200},
+		{"version cũ", "PUT", P, "1", 409},
 		{"đọc lại", "GET", "", "", 200},
 	}
 	for _, st := range steps {
@@ -63,7 +67,7 @@ func TestSaveFlow(t *testing.T) {
 		if st.method == "PUT" {
 			b = body(st.version)
 		}
-		w := do(mux, st.method, U, st.token, b)
+		w := do(mux, st.method, U, st.password, b)
 		if w.Code != st.want {
 			t.Fatalf("%s: mã %d, muốn %d (%s)", st.name, w.Code, st.want, w.Body.String())
 		}
@@ -74,6 +78,22 @@ func TestSaveFlow(t *testing.T) {
 	}
 	if w := do(mux, "GET", "/api/brackets/xx", "", nil); w.Code != 400 {
 		t.Fatalf("kind sai: mã %d", w.Code)
+	}
+}
+
+func TestPassword(t *testing.T) {
+	_, mux := newTestServer(t)
+	login := func(pw string) int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("POST", "/api/login", strings.NewReader(`{"password":"`+pw+`"}`))
+		mux.ServeHTTP(w, req)
+		return w.Code
+	}
+	if c := login(editPassword); c != 200 {
+		t.Fatalf("đăng nhập đúng mật khẩu: mã %d", c)
+	}
+	if c := login("sai"); c != 401 {
+		t.Fatalf("đăng nhập sai mật khẩu: mã %d", c)
 	}
 }
 

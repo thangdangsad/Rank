@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"database/sql"
 	"embed"
 	"encoding/json"
@@ -31,7 +32,9 @@ CREATE TABLE IF NOT EXISTS tournaments (
   updated_at TEXT NOT NULL
 );`
 
-// server không có mã chỉnh sửa: ai mở được trang (trong LAN) cũng sửa được.
+// mật khẩu sửa, đặt cứng trong code; dùng chung cho cả trang.
+const editPassword = "123456789"
+
 type server struct {
 	db *sql.DB
 }
@@ -102,6 +105,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/brackets/{kind}", s.get)
 	mux.HandleFunc("PUT /api/brackets/{kind}", s.put)
+	mux.HandleFunc("POST /api/login", s.login)
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	addr := ":" + env("PORT", "8080")
@@ -160,6 +164,26 @@ func health() int {
 }
 
 func validKind(k string) bool { return k == "doi" || k == "don" }
+
+func checkPassword(pw string) bool {
+	return subtle.ConstantTimeCompare([]byte(pw), []byte(editPassword)) == 1
+}
+
+func (s *server) login(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+	var in struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		errJSON(w, 400, "dữ liệu không đọc được")
+		return
+	}
+	if !checkPassword(in.Password) {
+		errJSON(w, 401, "sai mật khẩu")
+		return
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
+}
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -331,6 +355,10 @@ func (s *server) put(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
 	if !validKind(kind) {
 		errJSON(w, 400, "kind không hợp lệ")
+		return
+	}
+	if !checkPassword(r.Header.Get("X-Password")) {
+		errJSON(w, 401, "sai mật khẩu")
 		return
 	}
 
